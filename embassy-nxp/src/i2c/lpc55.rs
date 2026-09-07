@@ -1,13 +1,17 @@
 //! I2C driver
 #![macro_use]
 
+use core::marker::PhantomData;
+
 use embassy_hal_internal::{Peri, PeripheralType};
 
 use crate::gpio::{AnyPin, SealedPin};
+use crate::pac::SYSCON;
 use crate::pac::flexcomm::Flexcomm as FlexcommReg;
 use crate::pac::i2c::I2c as I2cReg;
 use crate::pac::iocon::vals::PioFunc;
-use crate::{Async, Blocking, Mode};
+use crate::pac::{flexcomm, i2c, iocon, syscon};
+use crate::{Blocking, Mode};
 
 /// I2C error.
 /// Copied from: https://github.com/embassy-rs/embassy/blob/main/embassy-stm32/src/i2c/mod.rs#L34
@@ -19,6 +23,8 @@ pub enum Error {
     Address,
     /// Bus error
     Bus,
+    /// Buffer error
+    Buffer,
     /// Arbitration lost
     Arbitration,
     /// ACK not received
@@ -36,17 +42,7 @@ pub enum Error {
 
 impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let message = match self {
-            Self::Bus => "Bus Error",
-            Self::Arbitration => "Arbitration Lost",
-            Self::Nack => "ACK Not Received",
-            Self::Timeout => "Request Timed Out",
-            Self::Crc => "CRC Mismatch",
-            Self::Overrun => "Buffer Overrun",
-            Self::ZeroLengthTransfer => "Zero-Length Transfers are not allowed",
-        };
-
-        write!(f, "{}", message)
+        core::fmt::Debug::fmt(self, f)
     }
 }
 
@@ -62,7 +58,7 @@ impl Config {
     fn new(frequency: u32) -> Self {
         if frequency == 0 {
             panic!("0 frequency is not allowed!");
-        } 
+        }
 
         Self { frequency }
     }
@@ -88,6 +84,7 @@ pub(crate) trait Instance: SealedInstance + PeripheralType {}
 
 pub struct I2c<'d, M: Mode> {
     info: &'static Info,
+    phantom: PhantomData<(&'d (), M)>,
 }
 
 impl<'d, M: Mode> I2c<'d, M> {
@@ -99,15 +96,15 @@ impl<'d, M: Mode> I2c<'d, M> {
         Self::init::<T>(scl, sda, config);
         Self {
             info: T::info(),
+            phantom: PhantomData,
         }
-
     }
 
     fn init<T: Instance>(scl: (Peri<'_, AnyPin>, PioFunc), sda: (Peri<'_, AnyPin>, PioFunc), config: Config) {
         Self::configure_flexcomm(T::info().fc_reg, T::instance_number());
         Self::configure_clock::<T>(&config);
         Self::configure_pins(scl, sda);
-        
+
         let i2c = T::info().i2c_reg;
         // Enable master mode
         i2c.cfg().modify(|w| w.set_msten(true));
@@ -132,7 +129,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         SYSCON
             .presetctrl1()
             .modify(|w| w.set_fc_rst(instance_number, syscon::vals::FcRst::Released));
-        flexcomm_register.pselid().modify(|w| {
+        flexcomm_reg.pselid().modify(|w| {
             w.set_persel(flexcomm::vals::Persel::I2c);
             // This will lock the peripheral PERSEL and will not allow any changes until the board is reset.
             w.set_lock(true);
@@ -147,20 +144,20 @@ impl<'d, M: Mode> I2c<'d, M> {
             w.set_div(0xFF); // denominator of the rate divider
             w.set_mult(0); // numerator of the rate divider
         });
-        
+
         // Flexcomm interface clock rate
         let fclk: u32 = 96_000_000;
-        
+
         // Quoting the datasheet: (LPC55S6xLPC55S2xLPC552x User manual, chapter 33.7.2.1)
         // Nominal SCL rate = Flexcomm Interface function clock rate / (SCL high time + SCL low time)
         // Remark: For 400 kHz clock rate, the clock frequency after the I2C divider (divval) must be <= 2 MHz.
-        
+
         // The remark is the reason why we have to use 96 MHz clock, even though it may seem like an overkill
         // If go with 12 MHz instead, exactly 400 kHz rate forces an internal I2C clock (FCLK/(DIVVAL+1)) of 2.4 MHz, which is above the 2 MHz margin
         // 400 kHz requires (DIVVAL+1)*(high_mult+low_mult) = 12_000_000 / 400_000 = 30
         // The smallest valid divider that divides 30 evenly is (DIVVAL+1) = 5
         // 12_000_000 / 5 = 2.4 MHz => over 2 MHz
-        
+
         // If we go with 96 MHz => 96_000_000 / 400_000 = 240, which divides evenly with (DIVVAL+1) = 60
         // 96_000_000 / 60 = 1.6 MHz => below 2 MHz
 
@@ -177,7 +174,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         // MSTSCLLOW and MSTSCLHIGH registers only support values ranging from 2 to 9
         for mult in 2u32..=9 {
             let denom = 2 * mult; // = high_mult + low_mult
-            
+
             // DIVVAL+1 = FCLK / (target * denom)
             let divisor = target * denom;
             let divval_plus_one = ((fclk + divisor / 2) / divisor).clamp(1, 0x1_0000); // keeping within u16 range
@@ -186,7 +183,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             let achieved = fclk / (divval_plus_one * denom);
             let error = achieved.abs_diff(target);
             let internal_clock = fclk / divval_plus_one;
-            
+
             // Check if current and best results meet the <= 2 MHz requirement
             let meets_guideline = target < 400_000 || internal_clock <= 2_000_000;
             let best_meets_guideline = target < 400_000 || (fclk / (best_divval as u32 + 1)) <= 2_000_000;
@@ -201,8 +198,8 @@ impl<'d, M: Mode> I2c<'d, M> {
         let i2c = T::info().i2c_reg;
         i2c.clkdiv().modify(|w| w.set_divval(best_divval));
         i2c.msttime().modify(|w| {
-            w.set_mstcllow(i2c::vals::Mstscllow::from_bits(best_mult - 2);
-            w.set_mstclhigh(i2c::vals::Mstsclhigh::from_bits(best_mult - 2);
+            w.set_mstscllow(i2c::vals::Mstscllow::from_bits(best_mult - 2));
+            w.set_mstsclhigh(i2c::vals::Mstsclhigh::from_bits(best_mult - 2));
         });
     }
 
@@ -215,7 +212,7 @@ impl<'d, M: Mode> I2c<'d, M> {
                 w.set_invert(false);
                 w.set_digimode(iocon::vals::PioDigimode::Digital);
                 // OpenDrain = the line relies on PullUp resitors and should only be pulled low
-                w.set_od(iocon::vals::PioOd::OpenDrain); 
+                w.set_od(iocon::vals::PioOd::OpenDrain);
             });
         }
     }
@@ -241,7 +238,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             return Ok(());
         }
 
-        let err = match state {
+        let err = match mststate {
             i2c::vals::Mststate::NackAddress => Error::NackAddress,
             i2c::vals::Mststate::NackData => Error::NackData,
             _ => Error::Bus,
@@ -283,33 +280,135 @@ impl<'d, M: Mode> I2c<'d, M> {
             _ => Err(Error::Bus),
         }
     }
+
+    /// Write data bytes to the register and wait for them to be sent
+    fn transfer_bytes(&mut self, bytes: &[u8]) -> Result<(), Error> {
+        let i2c = self.info.i2c_reg;
+
+        // Iterate over 8-bit data chunks
+        for &byte in bytes {
+            // Write data
+            i2c.mstdat().write(|w| w.set_data(byte));
+            // Resume the transfer
+            i2c.mstctl()
+                .write(|w| w.set_mstcontinue(i2c::vals::Mstcontinue::Continue));
+
+            // Wait for transfer to complete
+            match self.wait_mststate()? {
+                i2c::vals::Mststate::TransmitReady => {}
+                mststate => {
+                    let err = match mststate {
+                        i2c::vals::Mststate::NackAddress => Error::NackAddress,
+                        i2c::vals::Mststate::NackData => Error::NackData,
+                        _ => Error::Bus,
+                    };
+                    self.stop_transaction();
+                    return Err(err);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Read recieved data bytes from the register
+    fn receive_bytes(&mut self, buf: &mut [u8]) -> Result<(), Error> {
+        let i2c = self.info.i2c_reg;
+        let len = buf.len();
+
+        // Iterate and write the data to each chunk of the buffer
+        for (i, byte) in buf.iter_mut().enumerate() {
+            *byte = i2c.mstdat().read().data();
+
+            // Continue only if it is not the last byte of the buffer
+            if i + 1 < len {
+                i2c.mstctl()
+                    .write(|w| w.set_mstcontinue(i2c::vals::Mstcontinue::Continue));
+                match self.wait_mststate()? {
+                    i2c::vals::Mststate::ReceiveReady => {}
+                    mststate => {
+                        let err = match mststate {
+                            i2c::vals::Mststate::NackAddress => Error::NackAddress,
+                            i2c::vals::Mststate::NackData => Error::NackData,
+                            _ => Error::Bus,
+                        };
+                        self.stop_transaction();
+                        return Err(err);
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Blocking I2C implementation
 impl<'d> I2c<'d, Blocking> {
-    fn new_blocking(
-        scl: (Peri<'d, AnyPin>, PioFunc),
-        sda: (Peri<'d, AnyPin>, PioFunc),
-        config: Config,
-    ) -> Self {
+    fn new_blocking(scl: (Peri<'d, AnyPin>, PioFunc), sda: (Peri<'d, AnyPin>, PioFunc), config: Config) -> Self {
         Self::new_inner(scl, sda, config)
     }
 
-    fn blocking_read(&self, address: u8, buf: &[u8]) -> Result<(), Error> {
+    fn blocking_read(&mut self, address: u8, buf: &mut [u8]) -> Result<(), Error> {
+        if buf.is_empty() {
+            return Err(Error::Buffer);
+        }
         self.start_transaction(address, true)?;
-        // TODO
+        self.receive_bytes(buf)?;
+        self.stop_transaction();
+
+        Ok(())
     }
 
-    fn blocking_write(&self, address: u8, data: &[u8]) -> Result<(), Error> {
-        self.start_transaction(address, false)?;
-
+    fn blocking_write(&mut self, address: u8, data: &[u8]) -> Result<(), Error> {
         if data.len() == 0 {
             return Err(Error::ZeroLengthTransfer);
         }
-        // TODO
+
+        self.start_transaction(address, false)?;
+        self.transfer_bytes(data)?;
+        self.stop_transaction();
+
+        Ok(())
     }
 
-    fn blocking_write_read(&self) {
-        // TODO
+    fn blocking_write_read(&mut self, address: u8, data: &[u8], buf: &mut [u8]) -> Result<(), Error> {
+        if data.len() == 0 {
+            return Err(Error::ZeroLengthTransfer);
+        }
+        if buf.is_empty() {
+            return Err(Error::Buffer);
+        }
+
+        self.start_transaction(address, false)?;
+        self.transfer_bytes(data)?;
+        self.start_transaction(address, true)?;
+        self.receive_bytes(buf)?;
+        self.stop_transaction();
+
+        Ok(())
+    }
+}
+
+/// Embedded HAL trait implementatins
+impl<'d> embedded_hal_02::blocking::i2c::Write for I2c<'d, Blocking> {
+    type Error = Error;
+
+    fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(address, bytes)
+    }
+}
+impl<'d> embedded_hal_02::blocking::i2c::Read for I2c<'d, Blocking> {
+    type Error = Error;
+
+    fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_read(address, buffer)
+    }
+}
+impl embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, Blocking> {
+    type Error = Error;
+
+    fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_write_read(address, bytes, buffer)
     }
 }
