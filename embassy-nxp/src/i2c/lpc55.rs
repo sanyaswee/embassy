@@ -82,6 +82,24 @@ pub(crate) trait SealedInstance {
 
 pub(crate) trait Instance: SealedInstance + PeripheralType {}
 
+#[cfg(has_i2c_scl_pins)]
+pub(crate) trait SealedSclPin<T: Instance>: crate::gpio::Pin {
+    fn pin_func(&self) -> PioFunc;
+}
+
+#[cfg(has_i2c_scl_pins)]
+pub(crate) trait SealedSdaPin<T: Instance>: crate::gpio::Pin {
+    fn pin_func(&self) -> PioFunc;
+}
+
+#[cfg(has_i2c_scl_pins)]
+#[allow(private_bounds)]
+pub trait SclPin<T: Instance>: SealedSclPin<T> + crate::gpio::Pin {}
+
+#[cfg(has_i2c_sda_pins)]
+#[allow(private_bounds)]
+pub trait SdaPin<T: Instance>: SealedSdaPin<T> + crate::gpio::Pin {}
+
 pub struct I2c<'d, M: Mode> {
     info: &'static Info,
     phantom: PhantomData<(&'d (), M)>,
@@ -345,8 +363,14 @@ impl<'d, M: Mode> I2c<'d, M> {
 
 /// Blocking I2C implementation
 impl<'d> I2c<'d, Blocking> {
-    fn new_blocking(scl: (Peri<'d, AnyPin>, PioFunc), sda: (Peri<'d, AnyPin>, PioFunc), config: Config) -> Self {
-        Self::new_inner(scl, sda, config)
+    fn new_blocking<T: Instance>(
+        scl: Peri<'d, impl SclPin<T> + 'd>,
+        sda: Peri<'d, impl SdaPin<T> + 'd>,
+        config: Config,
+    ) -> Self {
+        let scl_func = scl.pin_func();
+        let sda_func = scl.pin_func();
+        Self::new_inner::<T>((scl.into(), scl_func), (sda.into(), sda_func), config)
     }
 
     fn blocking_read(&mut self, address: u8, buf: &mut [u8]) -> Result<(), Error> {
@@ -405,10 +429,56 @@ impl<'d> embedded_hal_02::blocking::i2c::Read for I2c<'d, Blocking> {
         self.blocking_read(address, buffer)
     }
 }
-impl embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, Blocking> {
+impl<'d> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, Blocking> {
     type Error = Error;
 
     fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
         self.blocking_write_read(address, bytes, buffer)
     }
+}
+
+macro_rules! impl_i2c_instance {
+    ($inst:ident, $fc:ident, $fc_num:expr) => {
+        impl crate::i2c::SealedInstance for crate::peripherals::$inst {
+            fn info() -> &'static crate::i2c::Info {
+                static INFO: crate::i2c::Info = crate::i2c::Info {
+                    i2c_reg: crate::pac::$inst,
+                    fc_reg: crate::pac::$fc,
+                };
+                &INFO
+            }
+
+            fn instance_number() -> usize {
+                $fc_num
+            }
+        }
+
+        impl crate::i2c::Instance for crate::peripherals::$inst {}
+    };
+}
+
+#[cfg(has_i2c_scl_pins)]
+macro_rules! impl_i2c_scl_pin {
+    ($pin:ident, $instance:ident, $func:ident) => {
+        impl crate::i2c::SealedSclPin<crate::peripherals::$instance> for crate::peripherals::$pin {
+            fn pin_func(&self) -> crate::pac::iocon::vals::PioFunc {
+                crate::pac::iocon::vals::PioFunc::$func
+            } 
+        }
+
+        impl crate::i2c::SclPin<crate::peripherals::$instance> for crate::peripherals::$pin {}
+    };
+}
+
+#[cfg(has_i2c_sda_pins)]
+macro_rules! impl_i2c_sda_pin {
+    ($pin:ident, $instance:ident, $func:ident) => {
+        impl crate::i2c::SealedSdaPin<crate::peripherals::$instance> for crate::peripherals::$pin {
+            fn pin_func(&self) -> crate::pac::iocon::vals::PioFunc {
+                crate::pac::iocon::vals::PioFunc::$func
+            } 
+        }
+
+        impl crate::i2c::SdaPin<crate::peripherals::$instance> for crate::peripherals::$pin {}
+    };
 }
