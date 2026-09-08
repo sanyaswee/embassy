@@ -73,7 +73,8 @@ pub(crate) trait SealedInstance {
     fn instance_number() -> usize;
 }
 
-pub(crate) trait Instance: SealedInstance + PeripheralType {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + PeripheralType {}
 
 #[cfg(has_i2c_scl_pins)]
 pub(crate) trait SealedSclPin<T: Instance>: crate::gpio::Pin {
