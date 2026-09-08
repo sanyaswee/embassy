@@ -13,29 +13,22 @@ use crate::pac::iocon::vals::PioFunc;
 use crate::pac::{flexcomm, i2c, iocon, syscon};
 use crate::{Blocking, Mode};
 
-/// I2C error.
-/// Copied from: https://github.com/embassy-rs/embassy/blob/main/embassy-stm32/src/i2c/mod.rs#L34
+/// I2C error
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Invalid address provided
     Address,
-    /// Bus error
-    Bus,
-    /// Buffer error
-    Buffer,
     /// Arbitration lost
     Arbitration,
+    /// Buffer error
+    Buffer,
+    /// Bus error
+    Bus,
     /// ACK not received
     NackAddress,
     NackData,
-    /// Timeout
-    Timeout,
-    /// CRC error
-    Crc,
-    /// Overrun error
-    Overrun,
     /// Zero-length transfers are not allowed.
     ZeroLengthTransfer,
 }
@@ -463,7 +456,7 @@ macro_rules! impl_i2c_scl_pin {
         impl crate::i2c::SealedSclPin<crate::peripherals::$instance> for crate::peripherals::$pin {
             fn pin_func(&self) -> crate::pac::iocon::vals::PioFunc {
                 crate::pac::iocon::vals::PioFunc::$func
-            } 
+            }
         }
 
         impl crate::i2c::SclPin<crate::peripherals::$instance> for crate::peripherals::$pin {}
@@ -476,7 +469,7 @@ macro_rules! impl_i2c_sda_pin {
         impl crate::i2c::SealedSdaPin<crate::peripherals::$instance> for crate::peripherals::$pin {
             fn pin_func(&self) -> crate::pac::iocon::vals::PioFunc {
                 crate::pac::iocon::vals::PioFunc::$func
-            } 
+            }
         }
 
         impl crate::i2c::SdaPin<crate::peripherals::$instance> for crate::peripherals::$pin {}
