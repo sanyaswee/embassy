@@ -48,7 +48,7 @@ pub struct Config {
 }
 
 impl Config {
-    fn new(frequency: u32) -> Self {
+    pub fn new(frequency: u32) -> Self {
         if frequency == 0 {
             panic!("0 frequency is not allowed!");
         }
@@ -356,17 +356,18 @@ impl<'d, M: Mode> I2c<'d, M> {
 
 /// Blocking I2C implementation
 impl<'d> I2c<'d, Blocking> {
-    fn new_blocking<T: Instance>(
+    pub fn new_blocking<T: Instance>(
+        _inner: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T> + 'd>,
         sda: Peri<'d, impl SdaPin<T> + 'd>,
         config: Config,
     ) -> Self {
         let scl_func = scl.pin_func();
-        let sda_func = scl.pin_func();
+        let sda_func = sda.pin_func();
         Self::new_inner::<T>((scl.into(), scl_func), (sda.into(), sda_func), config)
     }
 
-    fn blocking_read(&mut self, address: u8, buf: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_read(&mut self, address: u8, buf: &mut [u8]) -> Result<(), Error> {
         if buf.is_empty() {
             return Err(Error::Buffer);
         }
@@ -377,7 +378,7 @@ impl<'d> I2c<'d, Blocking> {
         Ok(())
     }
 
-    fn blocking_write(&mut self, address: u8, data: &[u8]) -> Result<(), Error> {
+    pub fn blocking_write(&mut self, address: u8, data: &[u8]) -> Result<(), Error> {
         if data.len() == 0 {
             return Err(Error::ZeroLengthTransfer);
         }
@@ -389,7 +390,7 @@ impl<'d> I2c<'d, Blocking> {
         Ok(())
     }
 
-    fn blocking_write_read(&mut self, address: u8, data: &[u8], buf: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_write_read(&mut self, address: u8, data: &[u8], buf: &mut [u8]) -> Result<(), Error> {
         if data.len() == 0 {
             return Err(Error::ZeroLengthTransfer);
         }
