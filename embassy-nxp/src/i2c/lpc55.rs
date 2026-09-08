@@ -320,7 +320,7 @@ impl<'d, M: Mode> I2c<'d, M> {
                         i2c::vals::Mststate::NackData => Error::NackData,
                         _ => Error::Bus,
                     };
-                    self.stop_transaction();
+                    self.stop_transaction()?;
                     return Err(err);
                 }
             }
@@ -350,7 +350,7 @@ impl<'d, M: Mode> I2c<'d, M> {
                             i2c::vals::Mststate::NackData => Error::NackData,
                             _ => Error::Bus,
                         };
-                        self.stop_transaction();
+                        self.stop_transaction()?;
                         return Err(err);
                     }
                 }
@@ -379,7 +379,7 @@ impl<'d> I2c<'d, Blocking> {
         }
         self.start_transaction(address, true)?;
         self.receive_bytes(buf)?;
-        self.stop_transaction();
+        self.stop_transaction()?;
 
         Ok(())
     }
@@ -391,7 +391,7 @@ impl<'d> I2c<'d, Blocking> {
 
         self.start_transaction(address, false)?;
         self.transfer_bytes(data)?;
-        self.stop_transaction();
+        self.stop_transaction()?;
 
         Ok(())
     }
@@ -408,7 +408,7 @@ impl<'d> I2c<'d, Blocking> {
         self.transfer_bytes(data)?;
         self.start_transaction(address, true)?;
         self.receive_bytes(buf)?;
-        self.stop_transaction();
+        self.stop_transaction()?;
 
         Ok(())
     }
