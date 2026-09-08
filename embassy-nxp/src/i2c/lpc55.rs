@@ -6,11 +6,10 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{Peri, PeripheralType};
 
 use crate::gpio::{AnyPin, SealedPin};
-use crate::pac::SYSCON;
 use crate::pac::flexcomm::Flexcomm as FlexcommReg;
 use crate::pac::i2c::I2c as I2cReg;
 use crate::pac::iocon::vals::PioFunc;
-use crate::pac::{flexcomm, i2c, iocon, syscon};
+use crate::pac::{SYSCON, flexcomm, i2c, iocon, syscon};
 use crate::{Blocking, Mode};
 
 /// I2C error
