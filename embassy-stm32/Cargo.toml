@@ -163,8 +163,8 @@ embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-ut
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "4312cc99a88df20c49967e2ec94befdb84e4ba36", features = ["async", "packet-buf-align-8"] }
-embassy-crypto-driver = { version = "0.1.0", path = "../embassy-crypto-driver" }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "14c369bbcbe8ee7167488ac9c9e18be059d83555", features = ["async", "packet-buf-align-8"] }
+embassy-crypto = { version = "0.1.0", path = "../embassy-crypto", features = ["large-contexts"] }
 embassy-ptp-driver = { version = "0.1.0", path = "../embassy-ptp-driver", optional = true }
 embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
 embassy-usb-synopsys-otg = { version = "0.4.0", path = "../embassy-usb-synopsys-otg" }
@@ -215,11 +215,11 @@ heapless = "0.9.3"
 once_cell = { version = "1.21.4", default-features = false, features=["critical-section"] }
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-b98e71c0587d052b1a10e79c5e958a2fe9207c91" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-f8d4db59f2671310e856cbb00611eee6a92e4183" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-b98e71c0587d052b1a10e79c5e958a2fe9207c91" , default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-f8d4db59f2671310e856cbb00611eee6a92e4183" , default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
@@ -251,8 +251,10 @@ defmt = [
     "embassy-time?/defmt",
     "embassy-usb-synopsys-otg/defmt",
     "stm32-metapac/defmt",
-    "sdio/defmt"
+    "sdio/defmt",
+    "embassy-crypto/defmt",
 ]
+
 ## Use log for logging
 log = ["dep:log"]
 ## Enable Ethernet PTP hardware timestamping.
@@ -264,6 +266,35 @@ stm32-hrtim = ["dep:stm32-hrtim"]
 
 ## Enable USB host mode support
 usb-host = ["embassy-usb-synopsys-otg/host"]
+
+## Register the hardware driver for one `embassy-crypto` operation, served by
+## the HASH, AES or CRYP peripheral. See the `embassy-crypto` documentation.
+## Nothing is registered for chips that lack the peripheral or the algorithm.
+embassy-crypto-md5 = []
+embassy-crypto-sha1 = []
+embassy-crypto-sha224 = []
+embassy-crypto-sha256 = []
+embassy-crypto-sha384 = []
+embassy-crypto-sha512 = []
+embassy-crypto-sha512-224 = []
+embassy-crypto-sha512-256 = []
+embassy-crypto-hmac-sha1 = []
+embassy-crypto-hmac-sha224 = []
+embassy-crypto-hmac-sha256 = []
+embassy-crypto-hmac-sha384 = []
+embassy-crypto-hmac-sha512 = []
+embassy-crypto-hmac-sha512-224 = []
+embassy-crypto-hmac-sha512-256 = []
+embassy-crypto-aes128-ecb = []
+embassy-crypto-aes128-cbc = []
+embassy-crypto-aes128-ctr = []
+embassy-crypto-aes128-gcm = []
+embassy-crypto-aes128-ccm = []
+embassy-crypto-aes256-ecb = []
+embassy-crypto-aes256-cbc = []
+embassy-crypto-aes256-ctr = []
+embassy-crypto-aes256-gcm = []
+embassy-crypto-aes256-ccm = []
 
 exti = []
 low-power = [ "time" ]

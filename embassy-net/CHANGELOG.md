@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- `tcp::client` and `dns::DnsClient` (the `embedded-nal-async` trait implementations) are now gated behind the `embedded-nal` feature.
 - Changed underlying network stack from `smoltcp` to [`xarxa`](https://github.com/embassy-rs/xarxa).
   - Increases perf, decreases code size. See [benchmarks](https://github.com/embassy-rs/xarxa#benchmarks)
   - Fixes many bugs, some inherent to `smoltcp` design.
@@ -33,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Wire types (`Ipv4Address`, `IpCidr`, ...) moved to `embassy_net::wire`.
 - Implement `core::error::Error` for `dns::Error`, `tcp::AcceptError`, `udp::SendError` and `udp::RecvError`.
 - Prevent double DHCP DISCOVER on link state change.
+- Add functions to query the configuration state of IPv4 and IPv6 separately.
 
 ## 0.9.1 - 2026-04-16
 

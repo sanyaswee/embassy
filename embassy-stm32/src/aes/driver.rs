@@ -1,4 +1,4 @@
-use embassy_crypto_driver::CryptoError;
+use embassy_crypto::Error as CryptoError;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
@@ -106,7 +106,7 @@ macro_rules! define_gcm_runner {
         fn $name(
             aes: &mut BlockingAes,
             key: &[u8; $key_size],
-            nonce: &[u8],
+            nonce: &[u8; 12],
             aad: &[u8],
             input: &[u8],
             output: &mut [u8],
@@ -114,7 +114,6 @@ macro_rules! define_gcm_runner {
             tag_output: Option<&mut [u8; 16]>,
             direction: Direction,
         ) -> Result<(), CryptoError> {
-            let nonce: &[u8; 12] = nonce.try_into().map_err(|_| CryptoError::InvalidInput)?;
             let cipher = AesGcm::<$key_size>::new(key, nonce);
             run_authenticated(aes, &cipher, direction, aad, input, output, tag, tag_output)
         }
@@ -406,18 +405,15 @@ macro_rules! aes_ccm_dispatch {
 
 struct AesDriver;
 
-impl embassy_crypto_driver::Aes128Ecb for AesDriver {
+#[cfg(feature = "embassy-crypto-aes128-ecb")]
+impl embassy_crypto::driver::Aes128Ecb for AesDriver {
     type Context = [u8; 16];
 
-    fn aes128ecb_init(key: &[u8; 16]) -> Self::Context {
+    fn init(key: &[u8; 16]) -> Self::Context {
         *key
     }
 
-    fn aes128ecb_clone(ctx: &Self::Context) -> Self::Context {
-        *ctx
-    }
-
-    fn aes128ecb_encrypt_block(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn encrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto::driver::InOutBuf<'_, '_, u8>) {
         if blocks.is_empty() {
             return;
         }
@@ -436,7 +432,7 @@ impl embassy_crypto_driver::Aes128Ecb for AesDriver {
         }
     }
 
-    fn aes128ecb_decrypt_block(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn decrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto::driver::InOutBuf<'_, '_, u8>) {
         if blocks.is_empty() {
             return;
         }
@@ -456,18 +452,15 @@ impl embassy_crypto_driver::Aes128Ecb for AesDriver {
     }
 }
 
-impl embassy_crypto_driver::Aes256Ecb for AesDriver {
+#[cfg(feature = "embassy-crypto-aes256-ecb")]
+impl embassy_crypto::driver::Aes256Ecb for AesDriver {
     type Context = [u8; 32];
 
-    fn aes256ecb_init(key: &[u8; 32]) -> Self::Context {
+    fn init(key: &[u8; 32]) -> Self::Context {
         *key
     }
 
-    fn aes256ecb_clone(ctx: &Self::Context) -> Self::Context {
-        *ctx
-    }
-
-    fn aes256ecb_encrypt_block(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn encrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto::driver::InOutBuf<'_, '_, u8>) {
         if blocks.is_empty() {
             return;
         }
@@ -486,7 +479,7 @@ impl embassy_crypto_driver::Aes256Ecb for AesDriver {
         }
     }
 
-    fn aes256ecb_decrypt_block(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn decrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto::driver::InOutBuf<'_, '_, u8>) {
         if blocks.is_empty() {
             return;
         }
@@ -506,22 +499,19 @@ impl embassy_crypto_driver::Aes256Ecb for AesDriver {
     }
 }
 
-impl embassy_crypto_driver::Aes128Gcm for AesDriver {
+#[cfg(feature = "embassy-crypto-aes128-gcm")]
+impl embassy_crypto::driver::Aes128Gcm for AesDriver {
     type Context = [u8; 16];
 
-    fn aes128gcm_init(key: &[u8; 16]) -> Self::Context {
+    fn init(key: &[u8; 16]) -> Self::Context {
         *key
     }
 
-    fn aes128gcm_clone(ctx: &Self::Context) -> Self::Context {
-        *ctx
-    }
-
-    fn aes128gcm_encrypt(
+    fn encrypt(
         ctx: &Self::Context,
-        nonce: &[u8],
+        nonce: &[u8; 12],
         aad: &[u8],
-        buffer: embassy_crypto_driver::InOutBuf<'_, '_, u8>,
+        buffer: embassy_crypto::driver::InOutBuf<'_, '_, u8>,
         tag: &mut [u8; 16],
     ) -> Result<(), CryptoError> {
         let mut driver = DRIVER.try_lock().unwrap();
@@ -533,11 +523,11 @@ impl embassy_crypto_driver::Aes128Gcm for AesDriver {
         run_gcm128(aes, ctx, nonce, aad, input, output, None, Some(tag), Direction::Encrypt)
     }
 
-    fn aes128gcm_decrypt(
+    fn decrypt(
         ctx: &Self::Context,
-        nonce: &[u8],
+        nonce: &[u8; 12],
         aad: &[u8],
-        buffer: embassy_crypto_driver::InOutBuf<'_, '_, u8>,
+        buffer: embassy_crypto::driver::InOutBuf<'_, '_, u8>,
         tag: &[u8; 16],
     ) -> Result<(), CryptoError> {
         let mut driver = DRIVER.try_lock().unwrap();
@@ -550,22 +540,19 @@ impl embassy_crypto_driver::Aes128Gcm for AesDriver {
     }
 }
 
-impl embassy_crypto_driver::Aes256Gcm for AesDriver {
+#[cfg(feature = "embassy-crypto-aes256-gcm")]
+impl embassy_crypto::driver::Aes256Gcm for AesDriver {
     type Context = [u8; 32];
 
-    fn aes256gcm_init(key: &[u8; 32]) -> Self::Context {
+    fn init(key: &[u8; 32]) -> Self::Context {
         *key
     }
 
-    fn aes256gcm_clone(ctx: &Self::Context) -> Self::Context {
-        *ctx
-    }
-
-    fn aes256gcm_encrypt(
+    fn encrypt(
         ctx: &Self::Context,
-        nonce: &[u8],
+        nonce: &[u8; 12],
         aad: &[u8],
-        buffer: embassy_crypto_driver::InOutBuf<'_, '_, u8>,
+        buffer: embassy_crypto::driver::InOutBuf<'_, '_, u8>,
         tag: &mut [u8; 16],
     ) -> Result<(), CryptoError> {
         let mut driver = DRIVER.try_lock().unwrap();
@@ -577,11 +564,11 @@ impl embassy_crypto_driver::Aes256Gcm for AesDriver {
         run_gcm256(aes, ctx, nonce, aad, input, output, None, Some(tag), Direction::Encrypt)
     }
 
-    fn aes256gcm_decrypt(
+    fn decrypt(
         ctx: &Self::Context,
-        nonce: &[u8],
+        nonce: &[u8; 12],
         aad: &[u8],
-        buffer: embassy_crypto_driver::InOutBuf<'_, '_, u8>,
+        buffer: embassy_crypto::driver::InOutBuf<'_, '_, u8>,
         tag: &[u8; 16],
     ) -> Result<(), CryptoError> {
         let mut driver = DRIVER.try_lock().unwrap();
@@ -594,22 +581,19 @@ impl embassy_crypto_driver::Aes256Gcm for AesDriver {
     }
 }
 
-impl embassy_crypto_driver::Aes128Ccm for AesDriver {
+#[cfg(feature = "embassy-crypto-aes128-ccm")]
+impl embassy_crypto::driver::Aes128Ccm for AesDriver {
     type Context = [u8; 16];
 
-    fn aes128ccm_init(key: &[u8; 16]) -> Self::Context {
+    fn init(key: &[u8; 16]) -> Self::Context {
         *key
     }
 
-    fn aes128ccm_clone(ctx: &Self::Context) -> Self::Context {
-        *ctx
-    }
-
-    fn aes128ccm_encrypt(
+    fn encrypt(
         ctx: &Self::Context,
         nonce: &[u8],
         aad: &[u8],
-        buffer: embassy_crypto_driver::InOutBuf<'_, '_, u8>,
+        buffer: embassy_crypto::driver::InOutBuf<'_, '_, u8>,
         tag: &mut [u8],
     ) -> Result<(), CryptoError> {
         let mut driver = DRIVER.try_lock().unwrap();
@@ -632,11 +616,11 @@ impl embassy_crypto_driver::Aes128Ccm for AesDriver {
         )
     }
 
-    fn aes128ccm_decrypt(
+    fn decrypt(
         ctx: &Self::Context,
         nonce: &[u8],
         aad: &[u8],
-        buffer: embassy_crypto_driver::InOutBuf<'_, '_, u8>,
+        buffer: embassy_crypto::driver::InOutBuf<'_, '_, u8>,
         tag: &[u8],
     ) -> Result<(), CryptoError> {
         let mut driver = DRIVER.try_lock().unwrap();
@@ -660,22 +644,19 @@ impl embassy_crypto_driver::Aes128Ccm for AesDriver {
     }
 }
 
-impl embassy_crypto_driver::Aes256Ccm for AesDriver {
+#[cfg(feature = "embassy-crypto-aes256-ccm")]
+impl embassy_crypto::driver::Aes256Ccm for AesDriver {
     type Context = [u8; 32];
 
-    fn aes256ccm_init(key: &[u8; 32]) -> Self::Context {
+    fn init(key: &[u8; 32]) -> Self::Context {
         *key
     }
 
-    fn aes256ccm_clone(ctx: &Self::Context) -> Self::Context {
-        *ctx
-    }
-
-    fn aes256ccm_encrypt(
+    fn encrypt(
         ctx: &Self::Context,
         nonce: &[u8],
         aad: &[u8],
-        buffer: embassy_crypto_driver::InOutBuf<'_, '_, u8>,
+        buffer: embassy_crypto::driver::InOutBuf<'_, '_, u8>,
         tag: &mut [u8],
     ) -> Result<(), CryptoError> {
         let mut driver = DRIVER.try_lock().unwrap();
@@ -698,11 +679,11 @@ impl embassy_crypto_driver::Aes256Ccm for AesDriver {
         )
     }
 
-    fn aes256ccm_decrypt(
+    fn decrypt(
         ctx: &Self::Context,
         nonce: &[u8],
         aad: &[u8],
-        buffer: embassy_crypto_driver::InOutBuf<'_, '_, u8>,
+        buffer: embassy_crypto::driver::InOutBuf<'_, '_, u8>,
         tag: &[u8],
     ) -> Result<(), CryptoError> {
         let mut driver = DRIVER.try_lock().unwrap();
@@ -726,18 +707,20 @@ impl embassy_crypto_driver::Aes256Ccm for AesDriver {
     }
 }
 
-impl embassy_crypto_driver::Aes128Cbc for AesDriver {
-    type Context = ([u8; 16], [u8; 16]);
+#[cfg(feature = "embassy-crypto-aes128-cbc")]
+impl embassy_crypto::driver::Aes128Cbc for AesDriver {
+    type EncryptContext = ([u8; 16], [u8; 16]);
+    type DecryptContext = ([u8; 16], [u8; 16]);
 
-    fn aes128cbc_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::Context {
+    fn encrypt_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::EncryptContext {
         (*key, *iv)
     }
 
-    fn aes128cbc_clone(ctx: &Self::Context) -> Self::Context {
-        *ctx
+    fn decrypt_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::DecryptContext {
+        (*key, *iv)
     }
 
-    fn aes128cbc_encrypt_block(ctx: &mut Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn encrypt_blocks(ctx: &mut Self::EncryptContext, blocks: embassy_crypto::driver::InOutBuf<'_, '_, u8>) {
         if blocks.is_empty() {
             return;
         }
@@ -761,7 +744,7 @@ impl embassy_crypto_driver::Aes128Cbc for AesDriver {
         }
     }
 
-    fn aes128cbc_decrypt_block(ctx: &mut Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn decrypt_blocks(ctx: &mut Self::DecryptContext, blocks: embassy_crypto::driver::InOutBuf<'_, '_, u8>) {
         if blocks.is_empty() {
             return;
         }
@@ -786,18 +769,20 @@ impl embassy_crypto_driver::Aes128Cbc for AesDriver {
     }
 }
 
-impl embassy_crypto_driver::Aes256Cbc for AesDriver {
-    type Context = ([u8; 32], [u8; 16]);
+#[cfg(feature = "embassy-crypto-aes256-cbc")]
+impl embassy_crypto::driver::Aes256Cbc for AesDriver {
+    type EncryptContext = ([u8; 32], [u8; 16]);
+    type DecryptContext = ([u8; 32], [u8; 16]);
 
-    fn aes256cbc_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::Context {
+    fn encrypt_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::EncryptContext {
         (*key, *iv)
     }
 
-    fn aes256cbc_clone(ctx: &Self::Context) -> Self::Context {
-        *ctx
+    fn decrypt_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::DecryptContext {
+        (*key, *iv)
     }
 
-    fn aes256cbc_encrypt_block(ctx: &mut Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn encrypt_blocks(ctx: &mut Self::EncryptContext, blocks: embassy_crypto::driver::InOutBuf<'_, '_, u8>) {
         if blocks.is_empty() {
             return;
         }
@@ -821,7 +806,7 @@ impl embassy_crypto_driver::Aes256Cbc for AesDriver {
         }
     }
 
-    fn aes256cbc_decrypt_block(ctx: &mut Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn decrypt_blocks(ctx: &mut Self::DecryptContext, blocks: embassy_crypto::driver::InOutBuf<'_, '_, u8>) {
         if blocks.is_empty() {
             return;
         }
@@ -850,93 +835,117 @@ impl embassy_crypto_driver::Aes256Cbc for AesDriver {
 // AES-128/256 CTR (stream cipher)
 // ===========================================================================
 
-fn ctr_block_in_place_16(aes: &mut BlockingAes, key: &[u8; 16], iv: &mut [u8; 16], buffer: &mut [u8]) {
-    let blocks = buffer.len() / 16;
-    if blocks == 0 {
-        return;
+/// Number of blocks one hardware run may process from the counter block `iv`.
+///
+/// The peripheral only increments the low 32 bits of the counter block, while
+/// CTR mode as exposed by `embassy_crypto` uses a 128-bit big-endian counter
+/// (NIST SP 800-38A). A run therefore stops where the low word would wrap, and
+/// the carry into the upper bits is applied by software before the next run.
+fn ctr_run_blocks(iv: &[u8; 16], blocks: usize) -> usize {
+    let low = u32::from_be_bytes(iv[12..].try_into().unwrap());
+    let until_wrap = u64::from(u32::MAX - low) + 1;
+    if until_wrap >= blocks as u64 {
+        blocks
+    } else {
+        until_wrap as usize
     }
+}
 
-    let cipher = AesCtr::<16>::new(key, iv);
-    let mut context = aes.start(&cipher, Direction::Encrypt);
-    for chunk in buffer.chunks_exact_mut(16) {
-        let ptr = chunk.as_mut_ptr();
-        let len = chunk.len();
-        let input = unsafe { core::slice::from_raw_parts(ptr, len) };
-        let output = unsafe { core::slice::from_raw_parts_mut(ptr, len) };
-        aes.payload_blocking(&mut context, input, output, true).unwrap();
+/// Advance the 128-bit big-endian counter block by `blocks`.
+fn ctr_advance(iv: &mut [u8; 16], blocks: usize) {
+    *iv = u128::from_be_bytes(*iv).wrapping_add(blocks as u128).to_be_bytes();
+}
+
+fn ctr_block_in_place_16(aes: &mut BlockingAes, key: &[u8; 16], iv: &mut [u8; 16], buffer: &mut [u8]) {
+    let mut buffer = buffer;
+    while buffer.len() >= 16 {
+        let n = ctr_run_blocks(iv, buffer.len() / 16);
+        let (run, rest) = buffer.split_at_mut(n * 16);
+        let start = *iv;
+        let cipher = AesCtr::<16>::new(key, &start);
+        let mut context = aes.start(&cipher, Direction::Encrypt);
+        for chunk in run.chunks_exact_mut(16) {
+            let ptr = chunk.as_mut_ptr();
+            let len = chunk.len();
+            let input = unsafe { core::slice::from_raw_parts(ptr, len) };
+            let output = unsafe { core::slice::from_raw_parts_mut(ptr, len) };
+            aes.payload_blocking(&mut context, input, output, true).unwrap();
+        }
+        ctr_advance(iv, n);
+        buffer = rest;
     }
-    let mut counter = u128::from_be_bytes(*iv);
-    counter = counter.wrapping_add(blocks as u128);
-    *iv = counter.to_be_bytes();
 }
 
 fn ctr_block_separate_16(aes: &mut BlockingAes, key: &[u8; 16], iv: &mut [u8; 16], input: &[u8], output: &mut [u8]) {
     assert_eq!(input.len(), output.len());
-    let blocks = output.len() / 16;
-    if blocks == 0 {
-        return;
+    let mut input = input;
+    let mut output = output;
+    while input.len() >= 16 {
+        let n = ctr_run_blocks(iv, input.len() / 16);
+        let (in_run, in_rest) = input.split_at(n * 16);
+        let (out_run, out_rest) = output.split_at_mut(n * 16);
+        let start = *iv;
+        let cipher = AesCtr::<16>::new(key, &start);
+        let mut context = aes.start(&cipher, Direction::Encrypt);
+        for (in_chunk, out_chunk) in in_run.chunks_exact(16).zip(out_run.chunks_exact_mut(16)) {
+            aes.payload_blocking(&mut context, in_chunk, out_chunk, true).unwrap();
+        }
+        ctr_advance(iv, n);
+        input = in_rest;
+        output = out_rest;
     }
-
-    let cipher = AesCtr::<16>::new(key, iv);
-    let mut context = aes.start(&cipher, Direction::Encrypt);
-    for (in_chunk, out_chunk) in input.chunks_exact(16).zip(output.chunks_exact_mut(16)) {
-        aes.payload_blocking(&mut context, in_chunk, out_chunk, true).unwrap();
-    }
-    let mut counter = u128::from_be_bytes(*iv);
-    counter = counter.wrapping_add(blocks as u128);
-    *iv = counter.to_be_bytes();
 }
 
 fn ctr_block_in_place_32(aes: &mut BlockingAes, key: &[u8; 32], iv: &mut [u8; 16], buffer: &mut [u8]) {
-    let blocks = buffer.len() / 16;
-    if blocks == 0 {
-        return;
+    let mut buffer = buffer;
+    while buffer.len() >= 16 {
+        let n = ctr_run_blocks(iv, buffer.len() / 16);
+        let (run, rest) = buffer.split_at_mut(n * 16);
+        let start = *iv;
+        let cipher = AesCtr::<32>::new(key, &start);
+        let mut context = aes.start(&cipher, Direction::Encrypt);
+        for chunk in run.chunks_exact_mut(16) {
+            let ptr = chunk.as_mut_ptr();
+            let len = chunk.len();
+            let input = unsafe { core::slice::from_raw_parts(ptr, len) };
+            let output = unsafe { core::slice::from_raw_parts_mut(ptr, len) };
+            aes.payload_blocking(&mut context, input, output, true).unwrap();
+        }
+        ctr_advance(iv, n);
+        buffer = rest;
     }
-
-    let cipher = AesCtr::<32>::new(key, iv);
-    let mut context = aes.start(&cipher, Direction::Encrypt);
-    for chunk in buffer.chunks_exact_mut(16) {
-        let ptr = chunk.as_mut_ptr();
-        let len = chunk.len();
-        let input = unsafe { core::slice::from_raw_parts(ptr, len) };
-        let output = unsafe { core::slice::from_raw_parts_mut(ptr, len) };
-        aes.payload_blocking(&mut context, input, output, true).unwrap();
-    }
-    let mut counter = u128::from_be_bytes(*iv);
-    counter = counter.wrapping_add(blocks as u128);
-    *iv = counter.to_be_bytes();
 }
 
 fn ctr_block_separate_32(aes: &mut BlockingAes, key: &[u8; 32], iv: &mut [u8; 16], input: &[u8], output: &mut [u8]) {
     assert_eq!(input.len(), output.len());
-    let blocks = output.len() / 16;
-    if blocks == 0 {
-        return;
+    let mut input = input;
+    let mut output = output;
+    while input.len() >= 16 {
+        let n = ctr_run_blocks(iv, input.len() / 16);
+        let (in_run, in_rest) = input.split_at(n * 16);
+        let (out_run, out_rest) = output.split_at_mut(n * 16);
+        let start = *iv;
+        let cipher = AesCtr::<32>::new(key, &start);
+        let mut context = aes.start(&cipher, Direction::Encrypt);
+        for (in_chunk, out_chunk) in in_run.chunks_exact(16).zip(out_run.chunks_exact_mut(16)) {
+            aes.payload_blocking(&mut context, in_chunk, out_chunk, true).unwrap();
+        }
+        ctr_advance(iv, n);
+        input = in_rest;
+        output = out_rest;
     }
-
-    let cipher = AesCtr::<32>::new(key, iv);
-    let mut context = aes.start(&cipher, Direction::Encrypt);
-    for (in_chunk, out_chunk) in input.chunks_exact(16).zip(output.chunks_exact_mut(16)) {
-        aes.payload_blocking(&mut context, in_chunk, out_chunk, true).unwrap();
-    }
-    let mut counter = u128::from_be_bytes(*iv);
-    counter = counter.wrapping_add(blocks as u128);
-    *iv = counter.to_be_bytes();
 }
 
-impl embassy_crypto_driver::Aes128Ctr for AesDriver {
+#[cfg(feature = "embassy-crypto-aes128-ctr")]
+impl embassy_crypto::driver::Aes128Ctr for AesDriver {
     type Context = ([u8; 16], [u8; 16], [u8; 16], u8);
     // (key, iv/counter, partial_keystream_buffer, partial_len)
 
-    fn aes128ctr_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::Context {
+    fn init(key: &[u8; 16], iv: &[u8; 16]) -> Self::Context {
         (*key, *iv, [0; 16], 0)
     }
 
-    fn aes128ctr_clone(ctx: &Self::Context) -> Self::Context {
-        *ctx
-    }
-
-    fn aes128ctr_apply_keystream(ctx: &mut Self::Context, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn apply_keystream(ctx: &mut Self::Context, buf: embassy_crypto::driver::InOutBuf<'_, '_, u8>) {
         let (key, iv, partial, partial_len) = ctx;
         let len = buf.len();
         let (in_ptr, out_ptr) = buf.into_raw();
@@ -967,12 +976,9 @@ impl embassy_crypto_driver::Aes128Ctr for AesDriver {
             if !tail.is_empty() {
                 let mut driver = DRIVER.try_lock().unwrap();
                 let aes = &mut driver.borrow();
-                let cipher = AesCtr::<16>::new(key, iv);
-                let mut context = aes.start(&cipher, Direction::Encrypt);
                 let mut keystream = [0u8; 16];
-                let block = [0u8; 16];
-                aes.payload_blocking(&mut context, &block, &mut keystream, true)
-                    .unwrap();
+                // Advances the counter, unlike a bare hardware run would.
+                ctr_block_in_place_16(aes, key, iv, &mut keystream);
                 for i in 0..tail.len() {
                     tail[i] ^= keystream[i];
                 }
@@ -1010,12 +1016,9 @@ impl embassy_crypto_driver::Aes128Ctr for AesDriver {
             if !tail_in.is_empty() {
                 let mut driver = DRIVER.try_lock().unwrap();
                 let aes = &mut driver.borrow();
-                let cipher = AesCtr::<16>::new(key, iv);
-                let mut context = aes.start(&cipher, Direction::Encrypt);
                 let mut keystream = [0u8; 16];
-                let block = [0u8; 16];
-                aes.payload_blocking(&mut context, &block, &mut keystream, true)
-                    .unwrap();
+                // Advances the counter, unlike a bare hardware run would.
+                ctr_block_in_place_16(aes, key, iv, &mut keystream);
                 for i in 0..tail_in.len() {
                     tail_out[i] = tail_in[i] ^ keystream[i];
                 }
@@ -1027,18 +1030,15 @@ impl embassy_crypto_driver::Aes128Ctr for AesDriver {
     }
 }
 
-impl embassy_crypto_driver::Aes256Ctr for AesDriver {
+#[cfg(feature = "embassy-crypto-aes256-ctr")]
+impl embassy_crypto::driver::Aes256Ctr for AesDriver {
     type Context = ([u8; 32], [u8; 16], [u8; 16], u8);
 
-    fn aes256ctr_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::Context {
+    fn init(key: &[u8; 32], iv: &[u8; 16]) -> Self::Context {
         (*key, *iv, [0; 16], 0)
     }
 
-    fn aes256ctr_clone(ctx: &Self::Context) -> Self::Context {
-        *ctx
-    }
-
-    fn aes256ctr_apply_keystream(ctx: &mut Self::Context, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn apply_keystream(ctx: &mut Self::Context, buf: embassy_crypto::driver::InOutBuf<'_, '_, u8>) {
         let (key, iv, partial, partial_len) = ctx;
         let len = buf.len();
         let (in_ptr, out_ptr) = buf.into_raw();
@@ -1066,12 +1066,9 @@ impl embassy_crypto_driver::Aes256Ctr for AesDriver {
             if !tail.is_empty() {
                 let mut driver = DRIVER.try_lock().unwrap();
                 let aes = &mut driver.borrow();
-                let cipher = AesCtr::<32>::new(key, iv);
-                let mut context = aes.start(&cipher, Direction::Encrypt);
                 let mut keystream = [0u8; 16];
-                let block = [0u8; 16];
-                aes.payload_blocking(&mut context, &block, &mut keystream, true)
-                    .unwrap();
+                // Advances the counter, unlike a bare hardware run would.
+                ctr_block_in_place_32(aes, key, iv, &mut keystream);
                 for i in 0..tail.len() {
                     tail[i] ^= keystream[i];
                 }
@@ -1106,12 +1103,9 @@ impl embassy_crypto_driver::Aes256Ctr for AesDriver {
             if !tail_in.is_empty() {
                 let mut driver = DRIVER.try_lock().unwrap();
                 let aes = &mut driver.borrow();
-                let cipher = AesCtr::<32>::new(key, iv);
-                let mut context = aes.start(&cipher, Direction::Encrypt);
                 let mut keystream = [0u8; 16];
-                let block = [0u8; 16];
-                aes.payload_blocking(&mut context, &block, &mut keystream, true)
-                    .unwrap();
+                // Advances the counter, unlike a bare hardware run would.
+                ctr_block_in_place_32(aes, key, iv, &mut keystream);
                 for i in 0..tail_in.len() {
                     tail_out[i] = tail_in[i] ^ keystream[i];
                 }
@@ -1122,13 +1116,23 @@ impl embassy_crypto_driver::Aes256Ctr for AesDriver {
         }
     }
 }
-embassy_crypto_driver::embassy_crypto_aes128ecb_impl!(AesDriver);
-embassy_crypto_driver::embassy_crypto_aes256ecb_impl!(AesDriver);
-embassy_crypto_driver::embassy_crypto_aes128cbc_impl!(AesDriver);
-embassy_crypto_driver::embassy_crypto_aes256cbc_impl!(AesDriver);
-embassy_crypto_driver::embassy_crypto_aes128gcm_impl!(AesDriver);
-embassy_crypto_driver::embassy_crypto_aes256gcm_impl!(AesDriver);
-embassy_crypto_driver::embassy_crypto_aes128ccm_impl!(AesDriver);
-embassy_crypto_driver::embassy_crypto_aes256ccm_impl!(AesDriver);
-embassy_crypto_driver::embassy_crypto_aes128ctr_impl!(AesDriver);
-embassy_crypto_driver::embassy_crypto_aes256ctr_impl!(AesDriver);
+#[cfg(feature = "embassy-crypto-aes128-ecb")]
+embassy_crypto::aes128_ecb_impl!(AesDriver);
+#[cfg(feature = "embassy-crypto-aes256-ecb")]
+embassy_crypto::aes256_ecb_impl!(AesDriver);
+#[cfg(feature = "embassy-crypto-aes128-cbc")]
+embassy_crypto::aes128_cbc_impl!(AesDriver);
+#[cfg(feature = "embassy-crypto-aes256-cbc")]
+embassy_crypto::aes256_cbc_impl!(AesDriver);
+#[cfg(feature = "embassy-crypto-aes128-gcm")]
+embassy_crypto::aes128_gcm_impl!(AesDriver);
+#[cfg(feature = "embassy-crypto-aes256-gcm")]
+embassy_crypto::aes256_gcm_impl!(AesDriver);
+#[cfg(feature = "embassy-crypto-aes128-ccm")]
+embassy_crypto::aes128_ccm_impl!(AesDriver);
+#[cfg(feature = "embassy-crypto-aes256-ccm")]
+embassy_crypto::aes256_ccm_impl!(AesDriver);
+#[cfg(feature = "embassy-crypto-aes128-ctr")]
+embassy_crypto::aes128_ctr_impl!(AesDriver);
+#[cfg(feature = "embassy-crypto-aes256-ctr")]
+embassy_crypto::aes256_ctr_impl!(AesDriver);
