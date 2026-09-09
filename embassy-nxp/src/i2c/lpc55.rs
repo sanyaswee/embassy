@@ -2,8 +2,11 @@
 #![macro_use]
 
 use core::marker::PhantomData;
+use core::future::poll_fn;
+use core::task::Poll;
 
 use embassy_hal_internal::{Peri, PeripheralType};
+use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{AnyPin, SealedPin};
 use crate::pac::flexcomm::Flexcomm as FlexcommReg;
@@ -11,6 +14,7 @@ use crate::pac::i2c::I2c as I2cReg;
 use crate::pac::iocon::vals::PioFunc;
 use crate::pac::{SYSCON, flexcomm, i2c, iocon, syscon};
 use crate::{Async, Blocking, Mode};
+use crate::interrupt::Interrupt;
 
 /// I2C error
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -65,15 +69,19 @@ impl Default for Config {
 pub(crate) struct Info {
     pub(crate) i2c_reg: I2cReg,
     pub(crate) fc_reg: FlexcommReg,
+    pub(crate) interrupt: Interrupt,
 }
 
 pub(crate) trait SealedInstance {
     fn info() -> &'static Info;
     fn instance_number() -> usize;
+    fn waker() -> &'static AtomicWaker;
 }
 
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType {}
+pub trait Instance: SealedInstance + PeripheralType {
+    type Interrupt: crate::interrupt::typelevel::Interrupt;
+}
 
 #[cfg(has_i2c_scl_pins)]
 pub(crate) trait SealedSclPin<T: Instance>: crate::gpio::Pin {
@@ -95,7 +103,28 @@ pub trait SdaPin<T: Instance>: SealedSdaPin<T> + crate::gpio::Pin {}
 
 pub struct I2c<'d, M: Mode> {
     info: &'static Info,
+    waker: &'static AtomicWaker,
     phantom: PhantomData<(&'d (), M)>,
+}
+
+/// Interrupt handler
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let i2c = T::info().i2c_reg;
+        
+        // Clear interrupt flags
+        i2c.intenclr().write(|w| {
+            w.set_mstpendingclr(true);
+            w.set_mstarblossclr(true);
+            w.set_mstststperrclr(true);
+        });
+
+        T::waker().wake();
+    }
 }
 
 impl<'d, M: Mode> I2c<'d, M> {
@@ -107,6 +136,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         Self::init::<T>(scl, sda, config);
         Self {
             info: T::info(),
+            waker: T::waker(),
             phantom: PhantomData,
         }
     }
@@ -226,6 +256,61 @@ impl<'d, M: Mode> I2c<'d, M> {
                 w.set_od(iocon::vals::PioOd::OpenDrain);
             });
         }
+    }
+
+}
+
+/// Blocking I2C implementation
+impl<'d> I2c<'d, Blocking> {
+    pub fn new_blocking<T: Instance>(
+        _inner: Peri<'d, T>,
+        scl: Peri<'d, impl SclPin<T> + 'd>,
+        sda: Peri<'d, impl SdaPin<T> + 'd>,
+        config: Config,
+    ) -> Self {
+        let scl_func = scl.pin_func();
+        let sda_func = sda.pin_func();
+        Self::new_inner::<T>((scl.into(), scl_func), (sda.into(), sda_func), config)
+    }
+
+    pub fn blocking_read(&mut self, address: u8, buf: &mut [u8]) -> Result<(), Error> {
+        if buf.is_empty() {
+            return Err(Error::Buffer);
+        }
+        self.start_transaction(address, true)?;
+        self.receive_bytes(buf)?;
+        self.stop_transaction()?;
+
+        Ok(())
+    }
+
+    pub fn blocking_write(&mut self, address: u8, data: &[u8]) -> Result<(), Error> {
+        if data.len() == 0 {
+            return Err(Error::ZeroLengthTransfer);
+        }
+
+        self.start_transaction(address, false)?;
+        self.transfer_bytes(data)?;
+        self.stop_transaction()?;
+
+        Ok(())
+    }
+
+    pub fn blocking_write_read(&mut self, address: u8, data: &[u8], buf: &mut [u8]) -> Result<(), Error> {
+        if data.len() == 0 {
+            return Err(Error::ZeroLengthTransfer);
+        }
+        if buf.is_empty() {
+            return Err(Error::Buffer);
+        }
+
+        self.start_transaction(address, false)?;
+        self.transfer_bytes(data)?;
+        self.start_transaction(address, true)?;
+        self.receive_bytes(buf)?;
+        self.stop_transaction()?;
+
+        Ok(())
     }
 
     /// Initiate the transaction (master mode)
@@ -354,60 +439,6 @@ impl<'d, M: Mode> I2c<'d, M> {
     }
 }
 
-/// Blocking I2C implementation
-impl<'d> I2c<'d, Blocking> {
-    pub fn new_blocking<T: Instance>(
-        _inner: Peri<'d, T>,
-        scl: Peri<'d, impl SclPin<T> + 'd>,
-        sda: Peri<'d, impl SdaPin<T> + 'd>,
-        config: Config,
-    ) -> Self {
-        let scl_func = scl.pin_func();
-        let sda_func = sda.pin_func();
-        Self::new_inner::<T>((scl.into(), scl_func), (sda.into(), sda_func), config)
-    }
-
-    pub fn blocking_read(&mut self, address: u8, buf: &mut [u8]) -> Result<(), Error> {
-        if buf.is_empty() {
-            return Err(Error::Buffer);
-        }
-        self.start_transaction(address, true)?;
-        self.receive_bytes(buf)?;
-        self.stop_transaction()?;
-
-        Ok(())
-    }
-
-    pub fn blocking_write(&mut self, address: u8, data: &[u8]) -> Result<(), Error> {
-        if data.len() == 0 {
-            return Err(Error::ZeroLengthTransfer);
-        }
-
-        self.start_transaction(address, false)?;
-        self.transfer_bytes(data)?;
-        self.stop_transaction()?;
-
-        Ok(())
-    }
-
-    pub fn blocking_write_read(&mut self, address: u8, data: &[u8], buf: &mut [u8]) -> Result<(), Error> {
-        if data.len() == 0 {
-            return Err(Error::ZeroLengthTransfer);
-        }
-        if buf.is_empty() {
-            return Err(Error::Buffer);
-        }
-
-        self.start_transaction(address, false)?;
-        self.transfer_bytes(data)?;
-        self.start_transaction(address, true)?;
-        self.receive_bytes(buf)?;
-        self.stop_transaction()?;
-
-        Ok(())
-    }
-}
-
 /// Embedded HAL trait implementatins
 impl<'d> embedded_hal_02::blocking::i2c::Write for I2c<'d, Blocking> {
     type Error = Error;
@@ -453,7 +484,9 @@ impl<'d> I2c<'d, Async> {
             return Err(Error::Buffer);
         }
 
-        // TODO
+        self.start_transaction(address, true).await?;
+        self.receive_bytes(buf).await?;
+        self.stop_transaction().await?;
 
         Ok(())
     }
@@ -463,7 +496,9 @@ impl<'d> I2c<'d, Async> {
             return Err(Error::ZeroLengthTransfer);
         }
 
-        // TODO
+        self.start_transaction(address, false).await?;
+        self.transfer_bytes(data).await?;
+        self.stop_transaction().await?;
 
         Ok(())
     }
@@ -476,7 +511,145 @@ impl<'d> I2c<'d, Async> {
             return Err(Error::Buffer);
         }
 
-        // TODO
+        self.start_transaction(address, false).await?;
+        self.transfer_bytes(data).await?;
+        self.start_transaction(address, true).await?;
+        self.receive_bytes(buf).await?;
+        self.stop_transaction().await?;
+
+        Ok(())
+    }
+
+    /// Wait and get the MSTSTATE when ready
+    async fn wait_mststate(&mut self) -> Result<i2c::vals::Mststate, Error> {
+        let i2c = self.info.i2c_reg;
+        
+        poll_fn(|cx| {
+            self.waker.register(cx.waker());
+            
+            let stat = i2c.stat().read();
+            if stat.mstarbloss() == i2c::vals::Mstarbloss::ArbitrationLoss {
+                i2c.stat().write(|w| w.set_mstarbloss(i2c::vals::Mstarbloss::ArbitrationLoss));
+                return Poll::Ready(Err(Error::Arbitration));
+            }
+            if stat.mstststperr() {
+                i2c.stat().write(|w| w.set_mstststperr(true));
+                return Poll::Ready(Err(Error::Bus));
+            }
+            if stat.mstpending() == i2c::vals::Mstpending::Pending {
+                return Poll::Ready(Ok(stat.mststate()));
+            }
+
+            // (Re)enable interrupts
+            i2c.intenset().write(|w| {
+                w.set_mstpendingen(true);
+                w.set_mstarblossen(true);
+                w.set_mstststperren(true);
+            });
+
+            Poll::Pending
+        }).await
+    }
+
+    /// Initiate the transaction (master mode)
+    async fn start_transaction(&mut self, address: u8, read: bool) -> Result<(), Error> {
+        if address >= 0x80 {
+            return Err(Error::Address);
+        }
+
+        let i2c = self.info.i2c_reg;
+        i2c.mstdat().write(|w| w.set_data((address << 1) | (read as u8)));
+        i2c.mstctl().write(|w| w.set_mststart(i2c::vals::Mststart::Start));
+
+        let mststate = self.wait_mststate().await?;
+        let expected = if read {
+            i2c::vals::Mststate::ReceiveReady
+        } else {
+            i2c::vals::Mststate::TransmitReady
+        };
+
+        if mststate == expected {
+            return Ok(());
+        }
+
+        let err = match mststate {
+            i2c::vals::Mststate::NackAddress => Error::NackAddress,
+            i2c::vals::Mststate::NackData => Error::NackData,
+            _ => Error::Bus,
+        };
+
+        self.stop_transaction().await?;
+        Err(err)
+    }
+
+    /// Stop and wait for the master to return to Idle
+    async fn stop_transaction(&mut self) -> Result<(), Error> {
+        let i2c = self.info.i2c_reg;
+        i2c.mstctl().write(|w| w.set_mststop(i2c::vals::Mststop::Stop));
+
+        match self.wait_mststate().await? {
+            i2c::vals::Mststate::Idle => Ok(()),
+            _ => Err(Error::Bus),
+        }
+    }
+
+    /// Write data bytes to the register and wait for them to be sent
+    async fn transfer_bytes(&mut self, bytes: &[u8]) -> Result<(), Error> {
+        let i2c = self.info.i2c_reg;
+
+        // Iterate over 8-bit data chunks
+        for &byte in bytes {
+            // Write data
+            i2c.mstdat().write(|w| w.set_data(byte));
+            // Resume the transfer
+            i2c.mstctl()
+                .write(|w| w.set_mstcontinue(i2c::vals::Mstcontinue::Continue));
+
+            // Wait for transfer to complete
+            match self.wait_mststate().await? {
+                i2c::vals::Mststate::TransmitReady => {}
+                mststate => {
+                    let err = match mststate {
+                        i2c::vals::Mststate::NackAddress => Error::NackAddress,
+                        i2c::vals::Mststate::NackData => Error::NackData,
+                        _ => Error::Bus,
+                    };
+                    self.stop_transaction().await?;
+                    return Err(err);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Read recieved data bytes from the register
+    async fn receive_bytes(&mut self, buf: &mut [u8]) -> Result<(), Error> {
+        let i2c = self.info.i2c_reg;
+        let len = buf.len();
+
+        // Iterate and write the data to each chunk of the buffer
+        for (i, byte) in buf.iter_mut().enumerate() {
+            *byte = i2c.mstdat().read().data();
+
+            // Continue only if it is not the last byte of the buffer
+            if i + 1 < len {
+                i2c.mstctl()
+                    .write(|w| w.set_mstcontinue(i2c::vals::Mstcontinue::Continue));
+                match self.wait_mststate().await? {
+                    i2c::vals::Mststate::ReceiveReady => {}
+                    mststate => {
+                        let err = match mststate {
+                            i2c::vals::Mststate::NackAddress => Error::NackAddress,
+                            i2c::vals::Mststate::NackData => Error::NackData,
+                            _ => Error::Bus,
+                        };
+                        self.stop_transaction().await?;
+                        return Err(err);
+                    }
+                }
+            }
+        }
 
         Ok(())
     }
@@ -486,9 +659,11 @@ macro_rules! impl_i2c_instance {
     ($inst:ident, $fc:ident, $fc_num:expr) => {
         impl crate::i2c::SealedInstance for crate::peripherals::$inst {
             fn info() -> &'static crate::i2c::Info {
+                use crate::interrupt::typelevel::Interrupt;
                 static INFO: crate::i2c::Info = crate::i2c::Info {
                     i2c_reg: crate::pac::$inst,
                     fc_reg: crate::pac::$fc,
+                    interrupt: crate::interrupt::typelevel::$fc::IRQ,
                 };
                 &INFO
             }
@@ -496,9 +671,17 @@ macro_rules! impl_i2c_instance {
             fn instance_number() -> usize {
                 $fc_num
             }
+
+            fn waker() -> &'static embassy_sync::waitqueue::AtomicWaker {
+                use embassy_sync::waitqueue::AtomicWaker;
+                static WAKER: AtomicWaker = AtomicWaker::new();
+                &WAKER
+            }
         }
 
-        impl crate::i2c::Instance for crate::peripherals::$inst {}
+        impl crate::i2c::Instance for crate::peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$fc;
+        }
     };
 }
 
