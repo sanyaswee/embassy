@@ -10,7 +10,7 @@ use crate::pac::flexcomm::Flexcomm as FlexcommReg;
 use crate::pac::i2c::I2c as I2cReg;
 use crate::pac::iocon::vals::PioFunc;
 use crate::pac::{SYSCON, flexcomm, i2c, iocon, syscon};
-use crate::{Blocking, Mode};
+use crate::{Async, Blocking, Mode};
 
 /// I2C error
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -428,6 +428,57 @@ impl<'d> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, Blocking> {
 
     fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
         self.blocking_write_read(address, bytes, buffer)
+    }
+}
+
+/// Async I2C implementation
+impl<'d> I2c<'d, Async> {
+    pub fn new<T: Instance>(
+        _inner: Peri<'d, T>,
+        scl: Peri<'d, impl SclPin<T> + 'd>,
+        sda: Peri<'d, impl SdaPin<T> + 'd>,
+        _irq: (), // TODO
+        config: Config,
+    ) -> Self {
+        let scl_func = scl.pin_func();
+        let sda_func = sda.pin_func();
+        
+        // TODO
+        
+        Self::new_inner::<T>((scl.into(), scl_func), (sda.into(), sda_func), config)
+    }
+
+    pub async fn read(&mut self, address: u8, buf: &mut [u8]) -> Result<(), Error> {
+        if buf.is_empty() {
+            return Err(Error::Buffer);
+        }
+
+        // TODO
+
+        Ok(())
+    }
+
+    pub async fn write(&mut self, address: u8, data: &[u8]) -> Result<(), Error> {
+        if data.len() == 0 {
+            return Err(Error::ZeroLengthTransfer);
+        }
+
+        // TODO
+
+        Ok(())
+    }
+
+    pub async fn write_read(&mut self, address: u8, data: &[u8], buf: &mut [u8]) -> Result<(), Error> {
+        if data.len() == 0 {
+            return Err(Error::ZeroLengthTransfer);
+        }
+        if buf.is_empty() {
+            return Err(Error::Buffer);
+        }
+
+        // TODO
+
+        Ok(())
     }
 }
 
