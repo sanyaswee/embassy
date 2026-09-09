@@ -6,6 +6,7 @@ use core::future::poll_fn;
 use core::task::Poll;
 
 use embassy_hal_internal::{Peri, PeripheralType};
+use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{AnyPin, SealedPin};
@@ -474,9 +475,14 @@ impl<'d> I2c<'d, Async> {
         let scl_func = scl.pin_func();
         let sda_func = sda.pin_func();
         
-        // TODO
-        
-        Self::new_inner::<T>((scl.into(), scl_func), (sda.into(), sda_func), config)
+        let this = Self::new_inner::<T>((scl.into(), scl_func), (sda.into(), sda_func), config);
+
+        this.info.interrupt.unpend();
+        unsafe {
+            this.info.interrupt.enable();
+        }
+
+        this
     }
 
     pub async fn read(&mut self, address: u8, buf: &mut [u8]) -> Result<(), Error> {
@@ -654,6 +660,8 @@ impl<'d> I2c<'d, Async> {
         Ok(())
     }
 }
+
+// TODO async embedded HAL traits ???
 
 macro_rules! impl_i2c_instance {
     ($inst:ident, $fc:ident, $fc_num:expr) => {
