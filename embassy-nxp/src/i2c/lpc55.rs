@@ -10,6 +10,7 @@ use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{AnyPin, SealedPin};
+use crate::interrupt::typelevel::Binding;
 use crate::pac::flexcomm::Flexcomm as FlexcommReg;
 use crate::pac::i2c::I2c as I2cReg;
 use crate::pac::iocon::vals::PioFunc;
@@ -469,7 +470,7 @@ impl<'d> I2c<'d, Async> {
         _inner: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T> + 'd>,
         sda: Peri<'d, impl SdaPin<T> + 'd>,
-        _irq: (), // TODO
+        _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
         config: Config,
     ) -> Self {
         let scl_func = scl.pin_func();
