@@ -31,10 +31,11 @@ pub enum Error {
     Buffer,
     /// Bus error
     Bus,
-    /// ACK not received
+    /// ACK not received (address)
     NackAddress,
+    /// ACK not recieved (data)
     NackData,
-    /// Zero-length transfers are not allowed.
+    /// Zero-length transfers are not allowed
     ZeroLengthTransfer,
 }
 
@@ -662,7 +663,61 @@ impl<'d> I2c<'d, Async> {
     }
 }
 
-// TODO async embedded HAL traits ???
+// Async embedded HAL trait implementations
+impl<'d, M: Mode> embedded_hal_1::i2c::ErrorType for I2c<'d, M> {
+    type Error = Error;
+}
+
+impl embedded_hal_1::i2c::Error for Error {
+    fn kind(&self) -> embedded_hal_1::i2c::ErrorKind {
+        use embedded_hal_1::i2c::{ErrorKind, NoAcknowledgeSource};
+        match self {
+            Error::Arbitration => ErrorKind::ArbitrationLoss,
+            Error::Bus => ErrorKind::Bus,
+            Error::NackAddress => ErrorKind::NoAcknowledge(NoAcknowledgeSource::Address),
+            Error::NackData => ErrorKind::NoAcknowledge(NoAcknowledgeSource::Data),
+            _ => ErrorKind::Other,
+        }
+    }
+}
+
+impl<'d> embedded_hal_async::i2c::I2c for I2c<'d, Async> {
+    async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
+        self.read(address, read).await
+    }
+
+    async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
+        self.write(address, write).await
+    }
+
+    async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+        self.write_read(address, write, read).await
+    }
+
+    async fn transaction(
+        &mut self,
+        address: u8,
+        operations: &mut [embedded_hal_1::i2c::Operation<'_>],
+    ) -> Result<(), Self::Error> {
+        use embedded_hal_async::i2c::Operation;
+
+        for operation in operations.iter_mut() {
+            match operation {
+                Operation::Read(buf) => {
+                    self.start_transaction(address, true).await?;
+                    self.receive_bytes(buf).await?;
+                },
+                Operation::Write(buf) => {
+                    self.start_transaction(address, false).await?;
+                    self.transfer_bytes(buf).await?;
+                }
+            }
+        }
+
+        self.stop_transaction().await?;
+        Ok(())
+    }
+}
 
 macro_rules! impl_i2c_instance {
     ($inst:ident, $fc:ident, $fc_num:expr) => {
