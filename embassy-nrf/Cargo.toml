@@ -78,7 +78,7 @@ rt = ["nrf-pac/rt"]
 ## Enable features requiring `embassy-time`
 time = ["dep:embassy-time", "embassy-embedded-hal/time"]
 
-## Enable defmt
+## Enable defmt kjshfjksfjhadskjffghdsfh
 defmt = [
     "dep:defmt",
     "embassy-hal-internal/defmt",
